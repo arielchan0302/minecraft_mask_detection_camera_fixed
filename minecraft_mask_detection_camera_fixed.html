@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Minecraft 風格｜AI 口罩辨識系統</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Noto+Sans+TC:wght@400;600;700;900&display=swap');
+:root{
+ --grass:#65a832;--grass-dark:#3d7627;--dirt:#80502f;--dirt-dark:#56351f;
+ --stone:#858585;--stone-dark:#555;--sky:#78c9ed;--ink:#252525;
+ --good:#4caf50;--bad:#d94a43;--warn:#e3a52f;--panel:#d5d5d5;
+}
+*{box-sizing:border-box}
+body{
+ margin:0;min-height:100vh;padding:26px 15px 38px;color:var(--ink);
+ font-family:'Noto Sans TC',sans-serif;
+ background-color:#78c9ed;
+ background-image:linear-gradient(#ffffff20 2px,transparent 2px),linear-gradient(90deg,#ffffff20 2px,transparent 2px);
+ background-size:32px 32px;
+}
+.page{width:min(1000px,100%);margin:auto}
+header{text-align:center;margin:6px 0 25px}
+.logo{
+ display:inline-block;background:#4b8e32;color:#fff;padding:10px 14px;
+ border:4px solid #2d5d20;box-shadow:inset 0 4px #8cc65c,0 5px 0 #24491c;
+ font-family:'Press Start 2P',monospace;font-size:10px;line-height:1.8;
+}
+h1{font-size:clamp(24px,5vw,38px);margin:19px 0 8px;color:#fff;
+ text-shadow:3px 3px 0 #365c28,6px 6px 0 #263d20;font-weight:900}
+.subtitle{color:#183b50;font-weight:700;text-shadow:0 1px #ffffff88}
+.grid{display:grid;grid-template-columns:1.12fr .88fr;gap:20px;align-items:start}
+.panel{
+ background:var(--panel);border:4px solid #fff;
+ box-shadow:inset -5px -5px #888,inset 5px 5px #f7f7f7,7px 8px 0 #354b35;
+ padding:19px;position:relative
+}
+.panel:before{content:"";position:absolute;left:0;right:0;top:0;height:8px;background:#aaa}
+.panel h2{font-size:17px;margin:2px 0 16px;font-weight:900;color:#303030}
+.section-tag{font-family:'Press Start 2P',monospace;font-size:8px;color:#526b46;margin-bottom:8px}
+.camera-frame{
+ background:#202020;border:5px solid #555;box-shadow:inset 0 0 0 3px #111;
+ min-height:310px;display:flex;align-items:center;justify-content:center;overflow:hidden
+}
+#webcam-container{width:100%;display:flex;justify-content:center}
+#webcam-container canvas{display:block;width:100%;height:auto;max-height:520px;image-rendering:pixelated}
+.placeholder{color:#e9e9e9;text-align:center;padding:45px 18px;line-height:2;font-weight:700}
+.placeholder .pixel{font-size:48px;display:block;filter:drop-shadow(4px 4px #111)}
+.controls{display:flex;gap:12px;margin-top:16px;flex-wrap:wrap}
+button{
+ border:0;padding:14px 16px;min-height:48px;flex:1;cursor:pointer;
+ font-family:'Noto Sans TC',sans-serif;font-weight:900;font-size:15px;
+ color:white;text-shadow:2px 2px #333;border:3px solid #333;
+ box-shadow:inset 0 4px #ffffff55,inset 0 -5px #0003,4px 4px 0 #333;
+ transition:transform .08s,filter .08s
+}
+button:active:not(:disabled){transform:translate(3px,3px);box-shadow:inset 0 3px #0002}
+button:disabled{opacity:.45;cursor:not-allowed}
+.start{background:#579b37}.stop{background:#b84b43}
+.statusline{display:flex;align-items:center;gap:9px;margin-top:17px;font-size:13px;font-weight:700;color:#454545}
+.dot{width:13px;height:13px;background:#888;border:2px solid #333;box-shadow:inset 2px 2px #fff5}
+.dot.live{background:#54c94d;box-shadow:0 0 0 3px #54c94d44}
+.result{
+ padding:18px;border:4px solid #555;box-shadow:inset 0 0 0 3px #ffffff55;
+ margin-bottom:18px;background:#bdbdbd;color:#292929
+}
+.result.good{background:#8bcf70;border-color:#376d2b}
+.result.bad{background:#e9877e;border-color:#8e302a}
+.result.warn{background:#f3d276;border-color:#96701f}
+.result.neutral{background:#bdbdbd;border-color:#555}
+.result-label{font-family:'Press Start 2P',monospace;font-size:8px;margin-bottom:12px;opacity:.8}
+.result-text{font-size:23px;font-weight:900;margin:0 0 8px}
+.result-hint{font-size:13px;line-height:1.65;font-weight:700}
+.confidence{display:flex;justify-content:space-between;align-items:center;margin:17px 0 8px;font-weight:800;font-size:13px}
+.confidence strong{font-family:'Press Start 2P',monospace;font-size:14px}
+.track,.bar-track{height:17px;background:#777;border:3px solid #333;box-shadow:inset 2px 2px #333;overflow:hidden}
+.fill{height:100%;width:0;background:#62bd4b;transition:width .2s}
+.panel h3{font-size:15px;margin:22px 0 12px}
+.prediction{margin:14px 0}
+.pred-head{display:flex;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:6px;font-weight:800}
+.pred-head span:last-child{font-family:monospace}
+.bar-track{height:13px}
+.bar-fill{height:100%;width:0;background:#64a9d8;transition:width .2s}
+.note{margin-top:16px;padding:12px;background:#c4c4c4;border:3px solid #888;box-shadow:inset 2px 2px #eee;font-size:12px;line-height:1.7;color:#414141}
+footer{text-align:center;margin-top:24px;color:#23442b;font-weight:900;font-size:12px;text-shadow:0 1px #fff8}
+@media(max-width:760px){.grid{grid-template-columns:1fr}.camera-frame{min-height:230px}.panel{padding:15px}}
+</style>
+</head>
+<body>
+<main class="page">
+<header>
+ <div class="logo">BLOCK WORLD · AI LAB</div>
+ <h1>⛏️ Minecraft 口罩辨識站</h1>
+ <p class="subtitle">放置好你的口罩，讓 AI 方塊實驗室幫你辨識！</p>
+</header>
+
+<div class="grid">
+ <section class="panel">
+  <div class="section-tag">01 / CAMERA</div>
+  <h2>📷 玩家攝影機視窗</h2>
+  <div class="camera-frame">
+   <div id="webcam-container">
+    <div class="placeholder" id="placeholder"><span class="pixel">📷</span>攝影機尚未啟動<br>按下方綠色按鈕開始任務</div>
+   </div>
+  </div>
+  <div class="controls">
+   <button class="start" id="startBtn" type="button">▶ 啟動鏡頭</button>
+   <button class="stop" id="stopBtn" type="button" disabled>■ 停止辨識</button>
+  </div>
+  <div class="statusline"><span class="dot" id="liveDot"></span><span id="status">任務狀態：待命中</span></div>
+  <div id="errorBox" class="note" role="alert" aria-live="polite" hidden></div>
+  <div class="note">🎮 任務提示：請面向鏡頭、保持光線充足。請使用 localhost 或 HTTPS 網址開啟；ChatGPT sandbox 預覽無法直接啟動攝影機。第一次啟動時需要下載 AI 模型，請稍候。</div>
+ </section>
+
+ <section class="panel">
+  <div class="section-tag">02 / AI SCANNER</div>
+  <h2>🧭 方塊 AI 辨識結果</h2>
+  <div class="result neutral" id="resultPanel" aria-live="polite">
+   <div class="result-label">PLAYER STATUS</div>
+   <div class="result-text" id="resultText">等待辨識</div>
+   <div class="result-hint" id="resultHint">啟動攝影機後，這裡會顯示 AI 判斷結果。</div>
+  </div>
+  <div class="confidence"><span>最高辨識信心度</span><strong id="confidence">--%</strong></div>
+  <div class="track"><div class="fill" id="confidenceFill"></div></div>
+  <h3>📊 各分類辨識機率</h3>
+  <div id="predictions"><p style="font-size:13px;color:#666">載入模型後，這裡會出現分類機率。</p></div>
+  <div class="note">⚠️ 系統依照你的 Teachable Machine 分類名稱判斷。若名稱不符合預設關鍵字，會顯示「請確認」，避免錯誤警示。</div>
+ </section>
+</div>
+<footer>✦ MINECRAFT-INSPIRED AI MASK DETECTOR ✦</footer>
+</main>
+
+<script>
+"use strict";
+
+const MODEL_URL = "https://teachablemachine.withgoogle.com/models/wwTez8gBib/";
+const CONFIDENCE_THRESHOLD = 0.65;
+
+let model = null;
+let webcam = null;
+let running = false;
+let frameId = null;
+let busy = false;
+let classElements = [];
+
+const $ = (id) => document.getElementById(id);
+const startBtn = $("startBtn");
+const stopBtn = $("stopBtn");
+
+function setStatus(message, live = false) {
+  $("status").textContent = "任務狀態：" + message;
+  $("liveDot").classList.toggle("live", live);
+}
+
+function showError(message) {
+  const box = $("errorBox");
+  box.hidden = false;
+  box.textContent = message;
+}
+
+function clearError() {
+  const box = $("errorBox");
+  box.hidden = true;
+  box.textContent = "";
+}
+
+function classifyLabel(label) {
+  const s = String(label).toLowerCase().replace(/[\s_-]+/g, "");
+  const incorrect = ["incorrect","improper","wrong","badmask","戴錯","配戴錯誤","配戴不正確","未正確佩戴","口罩未遮","露鼻","露出鼻"];
+  const noMask = ["nomask","withoutmask","maskoff","unmasked","未戴","沒戴","沒有戴","未配戴","未佩戴","未戴口罩"];
+  const mask = ["mask","戴口罩","有戴","正確配戴","正確佩戴","配戴正確","佩戴正確","口罩正確"];
+  if (incorrect.some(k => s.includes(k))) return "warn";
+  if (noMask.some(k => s.includes(k))) return "bad";
+  if (mask.some(k => s.includes(k))) return "good";
+  return "neutral";
+}
+
+function showResult(type, title, hint) {
+  $("resultPanel").className = "result " + type;
+  $("resultText").textContent = title;
+  $("resultHint").textContent = hint;
+}
+
+function explainCameraError(err) {
+  const name = err && err.name ? err.name : "UnknownError";
+  const detail = err && err.message ? err.message : "沒有額外錯誤訊息";
+  const help = {
+    NotAllowedError: "你拒絕了攝影機權限，請點網址列左側的網站權限圖示，將「攝影機」改成「允許」後重新整理。",
+    PermissionDeniedError: "瀏覽器或作業系統封鎖了攝影機權限，請在網站權限及 Windows 相機隱私設定中允許使用。",
+    NotFoundError: "找不到攝影機。請確認電腦有連接攝影機，且裝置已被系統辨識。",
+    NotReadableError: "攝影機可能正被 Teams、Zoom、LINE 等程式占用，請關閉其他使用鏡頭的程式後再試。",
+    OverconstrainedError: "目前攝影機不支援要求的影像設定，請改用其他攝影機。",
+    SecurityError: "瀏覽器安全限制阻止攝影機存取。請使用 localhost 或 HTTPS 網址。",
+    AbortError: "攝影機啟動程序中斷，請重新整理後再試。"
+  };
+  return (help[name] || "請確認攝影機已連接、未被其他程式占用，並允許瀏覽器存取。")
+    + "\n錯誤代碼：" + name + "\n詳細訊息：" + detail;
+}
+
+async function startCamera() {
+  if (running) return;
+
+  clearError();
+  startBtn.disabled = true;
+  stopBtn.disabled = true;
+
+  if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    const message = "目前開啟方式不支援攝影機。\n\nChatGPT sandbox 預覽不是可供攝影機使用的正式網站環境。請先下載此 HTML，使用 VS Code 的 Live Server 開啟（網址通常是 http://127.0.0.1:5500），或部署到 HTTPS 網站後再使用。";
+    setStatus("無法存取攝影機");
+    showResult("bad", "瀏覽器環境不支援", "請改用 localhost 或 HTTPS 網址開啟。");
+    showError(message);
+    startBtn.disabled = false;
+    return;
+  }
+
+  try {
+    setStatus("正在載入 AI 模型…");
+    showResult("neutral", "模型載入中", "正在連線讀取 Teachable Machine 模型，請稍候。");
+
+    if (!model) {
+      model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+    }
+
+    setStatus("正在請求攝影機權限…");
+    webcam = new tmImage.Webcam(480, 360, true);
+    await webcam.setup();
+    await webcam.play();
+
+    const holder = $("webcam-container");
+    holder.innerHTML = "";
+    holder.appendChild(webcam.canvas);
+    webcam.canvas.style.width = "100%";
+    webcam.canvas.style.height = "auto";
+
+    const area = $("predictions");
+    area.innerHTML = "";
+    classElements = [];
+
+    for (let i = 0; i < model.getTotalClasses(); i++) {
+      const el = document.createElement("div");
+      el.className = "prediction";
+      el.innerHTML = '<div class="pred-head"><span class="class-name"></span><span class="class-value">0.0%</span></div><div class="bar-track"><div class="bar-fill"></div></div>';
+      area.appendChild(el);
+      classElements.push(el);
+    }
+
+    running = true;
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    setStatus("攝影機啟動，AI 正在掃描", true);
+    showResult("neutral", "掃描中…", "請正面面向鏡頭，等待 AI 分析。");
+    loop();
+  } catch (err) {
+    console.error("啟動攝影機失敗：", err);
+    running = false;
+    if (webcam) {
+      try { webcam.stop(); } catch (_) {}
+      webcam = null;
+    }
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    setStatus("啟動失敗");
+    showResult("bad", "無法啟動", "請查看下方錯誤說明，依照提示修正。");
+    showError(explainCameraError(err));
+  }
+}
+
+async function loop() {
+  if (!running || busy) return;
+  busy = true;
+
+  try {
+    webcam.update();
+    const predictions = await model.predict(webcam.canvas);
+    if (!running) return;
+
+    const best = predictions.reduce((a, b) => b.probability > a.probability ? b : a);
+
+    predictions.forEach((p, i) => {
+      const el = classElements[i];
+      if (!el) return;
+      const value = p.probability * 100;
+      el.querySelector(".class-name").textContent = p.className;
+      el.querySelector(".class-value").textContent = value.toFixed(1) + "%";
+      el.querySelector(".bar-fill").style.width = value + "%";
+    });
+
+    const pct = best.probability * 100;
+    $("confidence").textContent = pct.toFixed(1) + "%";
+    $("confidenceFill").style.width = pct + "%";
+
+    const type = classifyLabel(best.className);
+    if (best.probability < CONFIDENCE_THRESHOLD) {
+      showResult("warn", "⚠ 信心度不足", "目前最可能是「" + best.className + "」，請調整光線或面向鏡頭。");
+    } else if (type === "good") {
+      showResult("good", "✓ 已戴口罩", "AI 辨識為「" + best.className + "」，請繼續正確配戴口罩。");
+    } else if (type === "bad") {
+      showResult("bad", "✕ 未戴口罩", "AI 辨識為「" + best.className + "」，請戴上口罩再確認。");
+    } else if (type === "warn") {
+      showResult("warn", "! 配戴不正確", "AI 辨識為「" + best.className + "」，請調整口罩並遮住口鼻。");
+    } else {
+      showResult("neutral", "辨識：" + best.className, "分類名稱尚未對應預設提示，請參考下方各分類機率。");
+    }
+  } catch (err) {
+    console.error("辨識錯誤：", err);
+    setStatus("辨識發生錯誤，請停止後重新啟動");
+    showError("辨識時發生錯誤：" + (err.message || err));
+  } finally {
+    busy = false;
+    if (running) frameId = requestAnimationFrame(loop);
+  }
+}
+
+function stopCamera() {
+  running = false;
+  if (frameId !== null) {
+    cancelAnimationFrame(frameId);
+    frameId = null;
+  }
+  if (webcam) {
+    try { webcam.stop(); } catch (_) {}
+    webcam = null;
+  }
+
+  $("webcam-container").innerHTML = '<div class="placeholder"><span class="pixel">📷</span>攝影機尚未啟動<br>按下方綠色按鈕開始任務</div>';
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+  $("confidence").textContent = "--%";
+  $("confidenceFill").style.width = "0%";
+  showResult("neutral", "等待辨識", "攝影機已停止，重新啟動即可再次辨識。");
+  setStatus("待命中，攝影機已停止");
+}
+
+startBtn.addEventListener("click", startCamera);
+stopBtn.addEventListener("click", stopCamera);
+</script>
+</body>
+</html>
